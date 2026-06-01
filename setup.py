@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = 'recurrent-whisperer',
-    version = '1.5.0',
+    version = '1.5.1',
     url = 'https://github.com/mattgolub/recurrent-whisperer',
     author = 'Matt Golub',
     author_email = 'mgolub@cs.washington.edu',
@@ -16,6 +16,6 @@ setup(
         'pyyaml >= 3.13'
     ],
     extras_require = {
-        'tensorflow >= 1.14.0'
+        'tensorflow': ['tensorflow >= 2.16.0']
     }
 )

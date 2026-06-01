@@ -1154,11 +1154,31 @@ class RecurrentWhisperer(object):
             self.learning_rate_scaled = \
                 self.learning_rate * self.learning_rate_scale
 
-            self.optimizer = tf.keras.optimizers.Adam(
-                learning_rate=self.learning_rate_scaled,
-                **self.hps.adam_hps)
+            self.global_step = tf.Variable(0,
+                name='global_step',
+                trainable=False,
+                dtype=tf.int32)
 
-            self.train_op = self.optimizer.apply_gradients(zipped_grads)
+            # tf.keras.optimizers.Adam (Keras 3) does not accept TF placeholders
+            # as learning_rate. Use tf.compat.v1.train.AdamOptimizer instead,
+            # which works in graph mode and supports placeholder inputs.
+            # Note: v1 AdamOptimizer uses 'beta1'/'beta2' (no underscore).
+            _adam_hps = dict(self.hps.adam_hps)
+            _adam_hps.pop('name', None)  # not a valid kwarg for v1 optimizer
+            _beta1 = _adam_hps.pop('beta_1', None)
+            _beta2 = _adam_hps.pop('beta_2', None)
+            if _beta1 is not None:
+                _adam_hps['beta1'] = _beta1
+            if _beta2 is not None:
+                _adam_hps['beta2'] = _beta2
+
+            self.optimizer = tf1.train.AdamOptimizer(
+                learning_rate=self.learning_rate_scaled,
+                **_adam_hps)
+
+            self.train_op = self.optimizer.apply_gradients(
+                zipped_grads,
+                global_step=self.global_step)
 
     def _setup_visualizations(self):
         '''Sets up visualizations. Only called if
@@ -1607,7 +1627,7 @@ class RecurrentWhisperer(object):
         fig.canvas.draw()
 
         # This call is responsible for 1%-5% of fig2array time
-        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
 
         # The following is responsible for basically 0% of fig2array time.
         w, h = cls._get_fig_width_height(fig)
@@ -3379,7 +3399,7 @@ class RecurrentWhisperer(object):
         '''
 
         # TO DO: remove "_" from definition
-        return self.session.run(self.optimizer.iterations)
+        return self.session.run(self.global_step)
 
     @property
     def _epoch_tf(self):
@@ -3522,7 +3542,7 @@ class RecurrentWhisperer(object):
             integer specifying the number of trainable parameters.
         '''
         model_vars = self.trainable_variables
-        n_params = sum([np.prod(v.shape).value for v in model_vars])
+        n_params = sum([int(np.prod(v.shape)) for v in model_vars])
 
         return n_params
 
@@ -3579,7 +3599,9 @@ class RecurrentWhisperer(object):
 
         zipped_grads = list(zip(clipped_grads, vars_to_train))
 
-        self.train_op = self.optimizer.apply_gradients(zipped_grads)
+        self.train_op = self.optimizer.apply_gradients(
+            zipped_grads,
+            global_step=self.global_step)
 
     def print_trainable_variables(self):
         '''Prints the current set of trainable variables.
